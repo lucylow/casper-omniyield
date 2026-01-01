@@ -51,6 +51,11 @@ OmniYield Nexus separates responsibilities across on-chain and off-chain compone
 
 ## Diagrams (Mermaid)
 
+---
+
+## ✅ FIXED: System Overview (GitHub-Compatible Mermaid)
+
+```mermaid
 flowchart LR
   subgraph USER
     U["Wallet<br/>CSPR click"]
@@ -85,6 +90,87 @@ flowchart LR
   Indexer -->|aggregate| Vault
   Indexer --> WS
   WS --> U
+```
+
+---
+
+## ✅ FIXED: Cross-Chain Message Lifecycle (Sequence Diagram)
+
+Sequence diagrams are usually safer, but here is a **fully GitHub-safe version**:
+
+```mermaid
+sequenceDiagram
+  participant User
+  participant Vault as Casper Vault
+  participant Sidecar
+  participant Indexer
+  participant Adapter
+  participant Satellite
+
+  User->>Vault: deposit CSPR
+  Vault-->>User: DepositAccepted
+  Vault->>Sidecar: emit CrossChainMessage payload_hash
+  Sidecar->>Indexer: stream event
+  Indexer->>Adapter: build envelope
+  Adapter->>Satellite: send envelope
+  Satellite-->>Adapter: harvest report
+  Adapter->>Indexer: forward report
+  Indexer->>Vault: submit accounting update
+  Vault-->>User: balance updated
+```
+
+---
+
+## 🔧 RULES TO AVOID MERMAID PARSE ERRORS ON GITHUB
+
+Use these rules everywhere in your README:
+
+### ❌ Avoid
+
+* Parentheses `( )`
+* Periods inside labels (`CSPR.click`)
+* Colons `:` inside node text
+* Slashes `/` unless escaped
+* Quotes inside quotes
+
+### ✅ Use Instead
+
+* `<br/>` for line breaks
+* Plain words
+* Short labels
+* Aliases via `as`
+
+Example:
+
+```mermaid
+A["Wallet<br/>CSPR click"]
+```
+
+---
+
+## ✅ OPTIONAL: Minimal Architecture Diagram (Ultra-Safe)
+
+If judges view on GitHub mobile or restricted renderers, this version **never fails**:
+
+```mermaid
+flowchart LR
+  Wallet --> Vault
+  Vault --> Token
+  Vault --> Sidecar
+  Sidecar --> Indexer
+  Indexer --> Adapter
+  Adapter --> Satellite
+  Satellite --> Indexer
+  Indexer --> Vault
+```
+
+---
+
+
+
+
+
+
 
 ### System overview
 
