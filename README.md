@@ -1,4 +1,4 @@
-# Casper OmniYield — OmniYield Nexus (Casper Cross-Chain Yield Optimizer)
+#  OmniYield Nexus (Casper Cross-Chain Yield Optimizer)
 
 - **Repository:** `https://github.com/lucylow/casper-omniyield/tree/main`
 
