@@ -1,888 +1,569 @@
-**OmniYield Nexus — Casper Cross-Chain Yield Optimizer**
-========================================================
+# Casper OmniYield — OmniYield Nexus (Casper Cross-Chain Yield Optimizer)
+
+**Repository:** `https://github.com/lucylow/casper-omniyield/tree/main`
+**Status:** Hackathon MVP → Testnet Prototype (Casper Testnet)
+**Stack:** Odra (Rust WASM contracts), Casper (Sidecar SSE), CSPR.click wallet, casper-js-sdk, Node.js backend (Sidecar consumer + adapter simulator), Next.js App Router frontend (React + TypeScript), Docker, Jest, Cargo Odra tests.
+
+ OmniYield Nexus is a Casper-native coordination hub for cross-chain yield optimization. Users deposit CSPR into a Casper vault and receive a synthetic CEP-18 token `omniYLD`. The protocol emits deterministic `payload_hash` events that off-chain adapters/relayers can consume and forward to satellite vaults on other chains (MVP uses simulated satellite execution). On-chain accounting and event streams are anchored on Casper (Sidecar SSE) so the ecosystem has an auditable source of truth.
 
 
-**1\. Overview & Goals**
-------------------------
+---
 
-**OmniYield Nexus** (a.k.a. _Casper Cross-Chain Yield Optimizer_) is a Casper-hosted protocol that enables users to deposit native Casper (CSPR) into a secure vault on Casper and receive a synthetic, transferable token omniYLD (CEP-18) that represents a share of a cross-chain, auto-rebalanced yield portfolio.
+## Table of contents
 
-The protocol separates concerns:
+1. [Architecture (high level)](#architecture-high-level)
+2. [Diagrams (Mermaid)](#diagrams-mermaid)
+3. [Contracts (Odra) — design & API](#contracts-odra--design--api)
+4. [Cross-chain messaging model & envelope spec](#cross-chain-messaging-model--envelope-spec)
+5. [Backend — Sidecar SSE consumer & adapter simulator](#backend--sidecar-sse-consumer--adapter-simulator)
+6. [Frontend — Next.js dApp (App Router) & pages](#frontend--nextjs-dapp-app-router--pages)
+7. [Transaction lifecycle, SSE → Activity page, Fork mode](#transaction-lifecycle-sse--activity-page-fork-mode)
+8. [Testing & CI](#testing--ci)
+9. [Security, error handling & audit notes](#security-error-handling--audit-notes)
+10. [Governance & role proofs (named keys)](#governance--role-proofs-named-keys)
+11. [API reference & OpenAPI fragment](#api-reference--openapi-fragment)
+12. [Mock data & demo scripts](#mock-data--demo-scripts)
+13. [Development: run locally (quick start)](#development-run-locally-quick-start)
+14. [Roadmap & next steps](#roadmap--next-steps)
+15. [Contributing, licensing, contacts](#contributing-licensing-contacts)
 
-*   **Casper** = secure _coordination hub_ (on-chain accounting, mint/burn, event emission).
-    
-*   **Adapters / Relayers** = off-chain components responsible for packing envelopes and interacting with external chains (or simulators for MVP).
-    
-*   **Satellite Vaults** = per-chain minimal contracts (or off-chain processes) that accept bridged value or simulated deposits and execute yield strategies.
-    
-*   **Frontend** = CSPR.click integration for smooth wallets & onboarding.
-    
-*   **Backend** = Sidecar/SSE + WebSocket bridge for live UX and monitoring.
-    
+---
 
-**Primary goals**
+## Architecture (high level)
 
-*   Demonstrate cross-chain _interoperability primitives_ (deterministic payload\_hash events, bridge-ready envelopes).
-    
-*   Provide an MVP with a Casper Testnet deployed vault, Sidecar streaming of events, a simulator for cross-chain relays, and a demo dashboard to visualize message lifecycle.
-    
-*   Keep contract logic minimal & auditable (tokenization, mint/burn, accounting), with heavy lifting (rebalancing decisions & cross-chain interactions) handled by off-chain services and emitters.
-    
+OmniYield Nexus separates responsibilities across on-chain and off-chain components to retain minimal trust in contracts and maximize extensibility.
 
-**2\. High-level Architecture**
--------------------------------
+* **Casper (On-chain)** — Vault contract, StrategyManager, CEP-18 synthetic token. Responsible for deposits, minting/burning `omniYLD`, emitting deterministic events (only `payload_hash`), on-chain accounting and invariants.
+* **Sidecar / SSE** — Real-time event streaming from Casper nodes (Sidecar or CSPR.cloud streaming API). Indexer / Backend consumes these events to build envelopes and drive adapters.
+* **Adapter / Relayer (Off-chain)** — Listens to Sidecar events for `CrossChainMessage` (payload_hash). Builds `Envelope { header, body, proof }`, signs it, and interacts with satellite vaults. For the MVP this is simulated.
+* **Satellite Vaults (Other chains)** — Minimal contract/process on target chains (or simulated) executing yield strategies (staking, lending, LP). Returns `harvest_report` back to Casper via the adapter.
+* **Frontend (Next.js)** — Multi-page dApp: Dashboard, Deposit, Strategies, Activity (live via WebSocket bridge), Governance (role-based), Settings.
+* **NodeOps Autogen / CI** — Build pipeline for wasm, deployment scripts, and automated deploys in CI.
 
-### **Mermaid diagram — System overview**
+**Design goals:**
 
+* *Canonical anchor*: Casper as the source of truth for accounting and message receipts.
+* *Bridge-agnostic*: Emit `payload_hash` + minimal on-chain data so adapters (LayerZero/CCIP/other) can plug in.
+* *Safety*: Circuit breakers, timelocks, multi-sig, event observability via Sidecar.
+* *MVP pragmatic*: Simulated satellite execution for demo; interface ready for real bridges.
+
+---
+
+## Diagrams (Mermaid)
+
+Paste these into a Markdown viewer that supports Mermaid (GitHub renders Mermaid in PRs with certain settings), or copy into a diagram editor.
+
+### System overview
+
+```mermaid
 flowchart LR
-
-  subgraph USER
-
-    A\[Wallet - CSPR.click\]
-
-  end
-
-  subgraph CASPER
-
-    V\[OmniYield Vault (Odra)\]
-
-    T\[omniYLD CEP-18 token (Odra module)\]
-
-    S\[StrategyManager (Odra)\]
-
-    SC\[Sidecar SSE\]
-
-  end
-
-  subgraph BACKEND
-
-    B\[Backend Event Bridge (Node.js)\]
-
-    SIM\[Simulator / Adapter\]
-
-    WS\[WebSocket / UI feed\]
-
-  end
-
-  subgraph SATELLITE
-
-    E1\[Satellite Vault - Ethereum ( /Goerli)\]
-
-    E2\[Satellite Vault - Polygon ( )\]
-
-  end
-
-  A -->|Deposit CSPR| V
-
-  V -->|mint omniYLD| T
-
-  V -->|emit CrossChainMessage(payload\_hash)| S
-
-  S --> SC
-
-  SC --> B
-
-  B -->|push| WS
-
-  B -->|forward envelope| SIM
-
-  SIM --> E1
-
-  SIM --> E2
-
-  E1 -->|returns accruals| B
-
-  E2 -->|returns accruals| B
-
-  B -->|aggregate| V
-
-**Key flows**
-
-1.  **User Deposit:** wallet → Casper Vault (native transfer attached to deploy).
-    
-2.  **Lock & Mint:** Vault locks CSPR and mints omniYLD CEP-18 tokens 1:1 (MVP) to user.
-    
-3.  **Emit Message:** StrategyManager emits CrossChainMessage event containing deterministic payload\_hash (hash of amount || user || ts plus metadata). Event is persisted on Casper and available via Sidecar SSE / CSPR.cloud streaming.
-    
-4.  **Relay / Adapter:** Backend or relayer listens to Sidecar events for the Vault contract hash; when a CrossChainMessage arrives, the adapter packages an envelope containing header|body|proof and forwards to the target chain(s) (for MVP: simulator sends to   satellite vaults).
-    
-5.  **Satellite Execution:** Satellite executes strategies (staking/lending) and returns an accrual report to Casper via the adapter (or simulated return).
-    
-6.  **Aggregate & Redeem:** On Casper, aggregator updates accounting (or the Vault reads accrual reports) and users burn omniYLD to redeem native CSPR + yield.
-    
-
-**3\. Component Breakdown**
----------------------------
-
-### **Contracts (on Casper)**
-
-*   **OmniYieldVault (Odra module)**
-    
-    *   deposit() — payable entrypoint, locks attached CSPR and creates ledger entry. Emits DepositReceived event.
-        
-    *   mintOmniYLD(owner, amount) — mints CEP-18 tokens (or use odra-modules Cep18). Emits SyntheticMinted.
-        
-    *   redeem(amount) — burns omniYLD and performs native transfer back to caller (respecting safety rules). Emits Redeem.
-        
-*   **StrategyManager (Odra)**
-    
-    *   emit\_cross\_chain(dest\_chain, action, amount, user) — compute deterministic payload\_hash and emit CrossChainMessage event.
-        
-*   **Optional modules:** AccessControl, TimeLock, Pauser, CircuitBreaker.
-    
-
-### **Backend Services**
-
-*   **Sidecar / SSE Consumer** (Node.js)
-    
-    *   Connects to https://node.testnet.cspr.cloud/events or wss://streaming.testnet.cspr.cloud
-        
-    *   Filters by contract hash (Vault contract hash) and CrossChainMessage events.
-        
-    *   Broadcasts to frontend via internal WebSocket channel project:.
-        
-    *   Persists event history, and creates a bridge envelope (signed proof) for the adapter.
-        
-*   **Adapter / Simulator**
-    
-    *   For MVP: simulator consumes envelopes and invokes   Satellite Vaults on testnets (e.g., Sepolia, Goerli).
-        
-    *   Production: adapter implements handshake with real bridges (LayerZero, CCIP) or L2 bridges.
-        
-*   **Aggregator / Reconciler**
-    
-    *   Receives accrual reports from satellites and aggregates yields on Casper (via a submit action or via dropping events the Vault picks up).
-        
-
-### **Frontend**
-
-*   **React + Typescript**
-    
-    *   CSPR.click provider for wallet aggregation (social login + multiple Casper wallets).
-        
-    *   Live dashboard with WebSocket feed showing events and cross-chain animation.
-        
-    *   Deposit UI that triggers a Casper deploy using casper-js-sdk or CSPR.click proxy.
-        
-
-**4\. Smart Contract Design (Odra)**
-------------------------------------
-
-### **Project structure (recommended)**
-
-omniyield/
-
-├─ Cargo.toml
-
-├─ Odra.toml
-
-├─ src/
-
-│  ├─ lib.rs
-
-│  ├─ events.rs
-
-│  ├─ errors.rs
-
-│  └─ modules/
-
-│     ├─ vault.rs
-
-│     ├─ synthetic\_token.rs
-
-│     ├─ strategy.rs
-
-│     ├─ access\_control.rs
-
-│     └─ timelock.rs
-
-├─ src/bin/
-
-│  └─ omniyield\_livenet.rs
-
-└─ tests/
-
-   └─ odra\_vm.rs
-
-### **Example: Event definitions (src/events.rs)**
-
-use odra::prelude::\*;
-
-use odra::types::U512;
-
-#\[odra::event\]
-
-pub struct DepositReceived {
-
-    pub sender: Address,
-
-    pub amount: U512,
-
-}
-
-#\[odra::event\]
-
-pub struct SyntheticMinted {
-
-    pub owner: Address,
-
-    pub amount: U512,
-
-}
-
-#\[odra::event\]
-
-pub struct CrossChainMessage {
-
-    pub source\_chain: String,
-
-    pub destination\_chain: String,
-
-    pub payload\_hash: String,
-
-}
-
-#\[odra::event\]
-
-pub struct YieldHarvested {
-
-    pub beneficiary: Address,
-
-    pub amount: U512,
-
-}
-
-### **Example: Vault deposit (simplified)**
-
-#\[odra::module\]
-
-pub struct Vault {
-
-    deposits: Mapping,
-
-    total\_locked: Var,
-
-    // ... submodules
-
-}
-
-#\[odra::module\]
-
-impl Vault {
-
-    #\[odra(init)\]
-
-    pub fn init(&mut self) { self.total\_locked.set(U512::zero()); }
-
-    #\[odra(payable)\]
-
-    pub fn deposit(&mut self) {
-
-        let caller = self.env().caller();
-
-        let amount = self.env().attached\_value();
-
-        let current = self.deposits.get(&caller).unwrap\_or(U512::zero());
-
-        self.deposits.set(&caller, current + amount);
-
-        self.total\_locked.set(self.total\_locked.get() + amount);
-
-        DepositReceived { sender: caller, amount }.emit();
-
-    }
-
-}
-
-### **Deterministic payload\_hash computation**
-
-We use blake2b (or odra::hash::blake2b) to compute a canonical payload hash:
-
-payload\_hash = blake2b(serialize(amount) || user\_address\_bytes || u64\_to\_bytes(timestamp) || action\_bytes)
-
-Store / emit only that payload\_hash on chain—this produces a small, verifiable on-chain receipt that the backend and remote chains can reference.
-
-**5\. Event schema, payload\_hash & envelope spec**
----------------------------------------------------
-
-### **CrossChainMessage event (on-chain)**
-
-{
-
-  "event": "CrossChainMessage",
-
-  "source\_chain": "casper",
-
-  "destination\_chain": "ethereum",
-
-  "payload\_hash": "0xabc123...",
-
-  "meta": {
-
-    "entrypoint": "emit\_cross\_chain",
-
-    "contract\_hash": "hash-omni-..."
-
-  },
-
-  "timestamp": 1735001700000
-
-}
-
-### **Message envelope (off-chain adapter payload)**
-
-The adapter constructs an envelope with three sections:
-
-Envelope {
-
-  Header {
-
-    source\_chain,
-
-    source\_contract,
-
-    timestamp
-
-  }
-
-  Body {
-
-    action, // e.g., "deposit"
-
-    asset, // "CSPR"
-
-    amount, // in motes
-
-    recipient, // account hash on target chain
-
-    extra\_meta // optional
-
-  }
-
-  Proof {
-
-    payload\_hash, // as emitted on Casper
-
-    adapter\_signature, // signature by adapter private key
-
-    merkle\_proof // optional when necessary
-
-  }
-
-}
-
-**Payload hash equation (pseudocode)**
-
-payload\_bytes = concat(U512\_to\_bytes(amount), account\_bytes(user), u64\_to\_bytes(ts), action\_bytes)
-
-payload\_hash = blake2b(payload\_bytes)
-
-Adapter signs the payload\_hash and includes signature in Proof.signature. This gives the target chain a verifiable binding to the original Casper event.
-
-**6\. Backend — Sidecar / CSPR.cloud & WebSocket bridge**
----------------------------------------------------------
-
-### **Requirements**
-
-*   Node.js (v20+ recommended)
-    
-*   eventsource or ws for SSE/WebSocket consumption and broadcasting
-    
-*   Optional persistence (Postgres / SQLite) to store event history
-    
-
-### **Example architecture (mermaid)**
-
+  subgraph USER
+    U[Wallet (CSPR.click)]
+  end
+
+  subgraph CASPER
+    Vault[OmniYield Vault (Odra)]
+    Token[omniYLD (CEP-18)]
+    Strategy[StrategyManager (Odra)]
+    Sidecar[Sidecar SSE]
+  end
+
+  subgraph BACKEND
+    Indexer[Event Indexer & Bridge]
+    Adapter[Adapter / Simulator]
+    WS[WebSocket -> UI]
+  end
+
+  subgraph SATELLITE
+    S1[Satellite Vault (simulated L1)]
+    S2[Satellite Vault (simulated L2)]
+  end
+
+  U -->|deposit| Vault
+  Vault -->|mint| Token
+  Strategy -->|emit CrossChainMessage(payload_hash)| Sidecar
+  Sidecar --> Indexer
+  Indexer --> Adapter
+  Adapter --> S1
+  Adapter --> S2
+  S1 -->|harvest report| Indexer
+  Indexer -->|aggregate| Vault
+  Indexer --> WS
+  WS --> U
+```
+
+### Message lifecycle (sequence)
+
+```mermaid
 sequenceDiagram
+  participant User
+  participant Vault as Casper Vault
+  participant Sidecar
+  participant Bridge as Adapter
+  participant Satellite
+  participant Indexer
 
-  participant Sidecar as Sidecar SSE
+  User->>Vault: deposit(amount)
+  Vault-->>User: DepositAccepted
+  Vault->>Sidecar: emit CrossChainMessage(payload_hash)
+  Sidecar->>Indexer: event
+  Indexer->>Bridge: build envelope(payload_hash)
+  Bridge->>Satellite: send envelope + proof
+  Satellite-->>Bridge: harvest_report
+  Bridge->>Indexer: forward report
+  Indexer->>Vault: submit HarvestReport (deploy)
+  Vault-->>User: accounting updated
+```
 
-  participant Bridge as Backend Bridge
+---
 
-  participant Adapter as Adapter/Simulator
+## Contracts (Odra) — design & API
 
-  participant WS as WS (UI)
+Contracts are implemented with the Odra framework for Casper. The code is under `src/` (Rust). Key modules:
 
-  Sidecar->>Bridge: Event(CrossChainMessage)
+* `vault.rs` — deposit, withdraw, ledger, total_locked, pause/unpause, emergency withdrawal hooks. Events: `DepositReceived`, `Redeem`, `VaultPaused`.
+* `token.rs` — CEP-18 implementation (odramodules Erc20/CEP18 compatible). `mint`, `burn`, `balance_of`.
+* `strategy_manager.rs` — issues `CrossChainMessage` events containing the `payload_hash` computed with blake2b over canonical serialized bytes.
+* `access_control.rs` — named keys for governors/operators and read entrypoints to query roles (trustless role proofs).
+* `errors.rs` — typed error enum with deterministic codes (see Error Handling).
 
-  Bridge->>Bridge: Filter(contract\_hash)
+### Example: event declarations (Rust / Odra)
 
-  Bridge->>Bridge: Persist(event)
+```rust
+#[odra::event]
+pub struct CrossChainMessage {
+    pub source_chain: String,
+    pub destination_chain: String,
+    pub payload_hash: String,
+    pub nonce: u64,
+}
+```
 
-  Bridge->>WS: Broadcast channel:project:proj-001
+### Example: deposit (simplified)
 
-  Bridge->>Adapter: Build envelope + sign
+```rust
+#[odra::module]
+impl Vault {
+    #[odra(payable)]
+    pub fn deposit(&mut self) -> Result<(), OdraError> {
+        let caller = self.env().caller();
+        let amount = self.env().attached_value();
+        ensure!(amount > U512::zero(), OmniYieldError::ZeroDeposit);
+        self.ledger.add_balance(caller, amount)?;
+        DepositReceived { sender: caller, amount }.emit();
+        Ok(())
+    }
+}
+```
 
-  Adapter->>Satellite: send envelope
+**Storage & gas considerations**
 
-  Satellite->>Adapter: reply accruals
+* Keep event payloads minimal (emit `payload_hash`, not full payload) to reduce deploy size and gas.
+* Use `Var`, `Mapping` types where appropriate; pre-allocate storage keys deterministically for easier off-chain indexing.
 
-  Adapter->>Bridge: return report
+---
 
-  Bridge->>Vault: submit harvest report via deploy (optional)
+## Cross-chain messaging model & envelope spec
 
-### **Minimal backend listener snippet (TypeScript)**
+**Core idea:** contract emits `CrossChainMessage { payload_hash }` which acts as a canonical, small, verifiable receipt on Casper. Off-chain adapters read Sidecar SSE, reconstruct the original payload (or fetch from indexer), construct an envelope, sign it and forward to target chain.
 
-// sidecarListener.ts
+### Envelope structure
 
+```
+Envelope {
+  Header {
+    source_chain: "casper",
+    source_contract: "<contract_hash>",
+    timestamp: <unix_ms>
+  }
+  Body {
+    action: "allocate",
+    asset: "CSPR",
+    amount: <motes>,
+    recipient: "<target_address>",
+    nonce: <u64>
+  }
+  Proof {
+    payload_hash: "0x...",
+    adapter_signature: "<sig>",
+    merkle_root?: "<optional>"
+  }
+}
+```
+
+### Payload hash (deterministic)
+
+```
+payload_bytes = concat(u512_to_bytes(amount), address_bytes(user), u64_to_bytes(timestamp), action_bytes)
+payload_hash = blake2b(payload_bytes)
+```
+
+**Replay protection:** maintain used nonces map on Casper and check at `process_relay_message`.
+
+**Adapter attestation:** adapter signs the `payload_hash` and attaches `adapter_signature` in the envelope proof.
+
+---
+
+## Backend — Sidecar SSE consumer & adapter simulator
+
+The backend performs three functions:
+
+1. **Sidecar consumer (EventSource/SSE)** — receives events from `https://node.testnet.cspr.cloud/events` or local Sidecar instance; filters by contract hash and event name.
+2. **Event Indexer & Storage** — persist events, maintain event history for pagination & UI, and store original payload bytes for reconstructing envelopes (optional).
+3. **Adapter / Simulator** — builds envelopes from events, optionally signs them, and forwards to satellite vaults (MVP: simulated satellite contracts on testnets or local processes).
+
+### Essential files
+
+* `backend/src/sidecarListener.ts` — SSE consumer
+* `backend/src/indexer.ts` — event persistence + simple SQLite or JSON store
+* `backend/src/adapterSimulator.ts` — simple simulation of cross-chain execution and returning `harvest_report`
+
+### Example: TypeScript SSE listener (Node)
+
+```ts
 import EventSource from "eventsource";
 
-import { broadcastToProject } from "./ws";
-
-const sidecarUrl = process.env.CSPR\_EVENTS\_URL || "https://node.testnet.cspr.cloud/events";
-
-const CONTRACT\_HASH = process.env.OMNIYIELD\_CONTRACT\_HASH;
+const sidecarUrl = process.env.CSPR_EVENTS_URL || "https://node.testnet.cspr.cloud/events";
+const CONTRACT_HASH = process.env.OMNIYIELD_CONTRACT_HASH!;
 
 const es = new EventSource(sidecarUrl);
-
 es.onmessage = (e) => {
-
-  try {
-
-    const parsed = JSON.parse(e.data);
-
-    // crude filter: look for contract\_hash
-
-    if (JSON.stringify(parsed).includes(CONTRACT\_HASH)) {
-
-      // parse event (depends on Sidecar shape)
-
-      broadcastToProject(parsed);
-
-      // persist, enqueue, or forward to adapter as needed
-
-    }
-
-  } catch (err) { console.error(err); }
-
+  try {
+    const parsed = JSON.parse(e.data);
+    if (JSON.stringify(parsed).includes(CONTRACT_HASH)) {
+      // extract event details & persist
+      handleEvent(parsed);
+    }
+  } catch (err) {
+    console.error("Error parsing SSE event", err);
+  }
 };
+```
 
-### **Adapter example (simulator)**
+### Adapter simulator
 
-*   For the hackathon we provide a simulator that consumes envelopes and executes a  ed satellite vault on a target testnet (or just replies with a harvest\_report event).
-    
+* Accepts envelopes and simulates `stake`, `lend`, `lp` behaviour.
+* Returns `harvest_report` objects to the indexer which then triggers on-chain reporting or UI updates.
 
-**7\. Frontend — CSPR.click & Live Dashboard**
-----------------------------------------------
+---
 
-### **Key features**
+## Frontend — Next.js dApp (App Router) & pages
 
-*   Wallet aggregation & social login via **CSPR.click** provider.
-    
-*   Deposit flow: build Casper deploy with casper-js-sdk or via CSPR.click proxy.
-    
-*   Real-time feed: subscribe to backend WebSocket (project channel) to receive onchain\_event and cross\_chain\_message messages.
-    
-*   Cross-chain animation: simple SVG animation that moves "message" elements from Casper node to target chain icons as messages update status (created → sent → relayed → executed).
-    
+The frontend is a multi-page dApp implemented with **Next.js App Router** (React + TypeScript). Pages include:
 
-### **Sample React hook for events**
+* `/dashboard` — overview, TVL, aggregated APY
+* `/deposit` — deposit flow (CSPR.click integration)
+* `/strategies` — view strategy allocations, trigger simulated rebalances (operators)
+* `/activity` — live activity feed from backend WebSocket (Sidecar → backend → WS → UI), with pagination & receipt deep links
+* `/governance` — role-based UI; governors/operators can propose & vote
+* `/settings` — network & wallet settings
 
-// hooks/useProjectEvents.ts
+### Important providers & hooks
 
-import { useState, useEffect } from "react";
+* `providers/WalletProvider.tsx` — CSPR.click integration & wallet session
+* `providers/ProtocolProvider.tsx` — shared protocol data (TVL, APY)
+* `providers/ChainProvider.tsx` — chain awareness
+* `providers/TxProvider.tsx` — transaction lifecycle state (signing → submitted → finalized/error)
+* `hooks/useSidecarEvents.ts` — client SSE or WebSocket hook for live updates (WS is recommended in production for scaling across clients)
 
-export default function useProjectEvents(projectId) {
+### Transaction lifecycle modals
 
-  const \[events, setEvents\] = useState(\[\]);
+The UI includes a global `TxModal` that reflects transaction states:
 
-  useEffect(() => {
+* `signing` — waiting for wallet signature
+* `submitted` — deploy broadcasted
+* `finalized` — Success; provide deploy hash and deep link to `cspr.live` or testnet explorer
+* `error` — error with trace / code
 
-    const ws = new WebSocket(process.env.VITE\_WS\_URL);
+---
 
-    ws.onmessage = (e) => {
+## Transaction lifecycle, SSE → Activity page, Fork mode
 
-      const msg = JSON.parse(e.data);
+### SSE → Activity & pagination
 
-      if (msg.channel === \`project:${projectId}\`) {
+* Backend broadcasts to WebSocket channels: `project:<projectId>` with structured messages `{ action, data, timestamp }`. UI subscribes and prepends events to the Activity feed.
+* Activity feed supports server-side pagination from the indexer (API: `/api/activity?page=X&limit=Y`).
 
-        setEvents(prev => \[msg.payload, ...prev\].slice(0, 200));
+### Testnet fork simulation mode
 
-      }
+* A runtime mode switch: `mainnet` | `testnet` | `fork`. In `fork` mode, the adapter simulates satellite execution locally without sending real transactions. This preserves reproducibility for demos and judges.
+* UI visually marks simulated transactions and receipts (`SIMULATED_RECEIPT_...`) to avoid confusion.
 
-    };
+---
 
-    return () => ws.close();
+## Testing & CI
 
-  }, \[projectId\]);
+### Odra unit tests (OdraVM)
 
-  return events;
+* Run smart contract unit tests quickly locally with the OdraVM backend:
 
-}
-
-### **Deposit flow (high-level)**
-
-1.  User clicks “Deposit” → open CSPR.click wallet modal.
-    
-2.  Compose deploy: attach attached\_value = deposit amount; set session to Vault.contract deposit entrypoint.
-    
-3.  Send deploy; UI waits for DeployAccepted / DeployProcessed.
-    
-4.  Sidecar produces DepositReceived and SyntheticMinted events — backend picks up and UI displays minted omniYLD.
-    
-
-**8\. Testing**
----------------
-
-### **OdraVM unit tests**
-
-*   Run with cargo odra test.
-    
-*   Tests run in OdraVM backend; fast and debug-friendly.
-    
-
-Example test:
-
-#\[test\]
-
-fn deposit\_mints\_omni\_yld() {
-
-    let env = TestEnv::new();
-
-    let owner = env.get\_account(0);
-
-    let mut instance = OmniYieldVault::deploy(&env, owner);
-
-    env.set\_caller(owner);
-
-    env.set\_attached\_value(U512::from(1\_000\_000u64));
-
-    instance.deposit();
-
-    assert\_eq!(instance.total\_locked(), U512::from(1\_000\_000u64));
-
-    assert\_eq!(instance.balance\_of(owner), U512::from(1\_000\_000u64));
-
-}
-
-### **Integration / Livenet tests**
-
-*   Provide a binary src/bin/deploy\_livenet.rs that runs a deployment using odra\_casper\_livenet\_env::env() and can be executed with --features livenet.
-    
-*   Livenet tests require .env with secret keys and node addresses.
-    
-
-### **Backend unit tests (Jest)**
-
-*     CSPR.cloud responses using fixtures from / .
-    
-*   Test: Sidecar parser correctly extracts payload\_hash and triggers adapter queue.
-    
-
-Example Jest test (pseudo):
-
-import { parseSidecarEvent } from "../sidecarParser";
-
-import sample from "../ /ws\_project\_messages.json";
-
-test("parses cross chain message", () => {
-
-  const parsed = parseSidecarEvent(sample\[2\]);
-
-  expect(parsed.eventName).toBe("CrossChainMessage");
-
-  expect(parsed.payload\_hash).toBeDefined();
-
-});
-
-**9\. Deployment & CI/CD**
---------------------------
-
-### **Environment files (.env examples)**
-
-\# .env
-
-ODRA\_CASPER\_LIVENET\_SECRET\_KEY\_PATH=./keys/secret\_key.pem
-
-ODRA\_CASPER\_LIVENET\_NODE\_ADDRESS=https://node.testnet.cspr.cloud
-
-ODRA\_CASPER\_LIVENET\_EVENTS\_URL=https://node.testnet.cspr.cloud/events
-
-ODRA\_CASPER\_LIVENET\_CHAIN\_NAME=casper-test
-
-CSPR\_CLOUD\_API\_KEY=...
-
-OMNIYIELD\_CONTRACT\_HASH=hash-omni-...
-
-WS\_PORT=4050
-
-### **Sample NodeOps Autogen integration (CI)**
-
-*   Use NodeOps Autogen to perform: build wasm, run cargo odra build --release, store wasm artifact, and auto-deploy via Livenet binary.
-    
-*   Provide a deploy.yaml with steps:
-    
-    *   install rust + wasm target
-        
-    *   cargo odra build --release
-        
-    *   cargo run --bin deploy\_livenet --features livenet (runs livenet deploy)
-        
-
-### **Docker & Compose (backend)**
-
-Provide Dockerfile for backend and docker-compose.yml to run backend + ws +   simulator + local test server.
-
-**10\. Security Patterns & Best Practices**
--------------------------------------------
-
-**Main design rules:**
-
-*   Keep minimal trust assumptions in on-chain code: contract only mints/burns and records payload hashes; off-chain components do not have unilateral control over user funds.
-    
-*   Use **Circuit Breaker** pattern in Vault: pause relays and withdraws when anomalies detected.
-    
-*   Use **Time-locks** for large withdrawals or rebalances to allow human intervention.
-    
-*   Use **Multi-Sig** for admin/parameter changes.
-    
-*   Emit detailed events for all critical state changes (deposits, mints, emitted messages, harvests) so Sidecar can provide verifiable histories.
-    
-*   When bridging real value, incorporate merkle\_proof or signature attestations from adapters and relayers, and require for finalizing cross-chain transfers.
-    
-
-**Audits & Sponsor (MVP policy)**
-
-*   For hackathon MVP: use clear comment headers in contract code and include an audit checklist.
-    
-*   For mainnet: plan for a third-party security firm (Halborn, Trail of Bits, etc.) — sponsor integration with prize partners can help.
-    
-
-**11\. API Reference (sample OpenAPI snippet)**
------------------------------------------------
-
-Below is a small OpenAPI v3 fragment for the backend inspector & projects API. You can generate interactive docs (Swagger UI) from this.
-
-openapi: 3.0.3
-
-info:
-
-  title: OmniYield Backend API
-
-  version: 0.1.0
-
-paths:
-
-  /api/projects:
-
-    get:
-
-      summary: List projects
-
-      responses:
-
-        '200':
-
-          description: OK
-
-          content:
-
-            application/json:
-
-              schema:
-
-                $ref: '#/components/schemas/ProjectsResponse'
-
-  /api/cspr/deploy/{deployHash}:
-
-    get:
-
-      summary: Inspect deploy
-
-      parameters:
-
-        - name: deployHash
-
-          in: path
-
-          required: true
-
-          schema:
-
-            type: string
-
-      responses:
-
-        '200':
-
-          description: Deploy info
-
-          content:
-
-            application/json:
-
-              schema:
-
-                $ref: '#/components/schemas/DeployResponse'
-
-components:
-
-  schemas:
-
-    ProjectsResponse:
-
-      type: object
-
-      properties:
-
-        data:
-
-          type: array
-
-          items:
-
-            $ref: '#/components/schemas/Project'
-
-    Project:
-
-      type: object
-
-      properties:
-
-        id: { type: string }
-
-        name: { type: string }
-
-        contractHashes:
-
-          type: array
-
-          items: { type: string }
-
-    DeployResponse:
-
-      type: object
-
-      properties:
-
-        data:
-
-          type: object
-
-**Note:** Judges can run swagger-jsdoc to generate interactive docs using this spec.
-
-**12\.   Data & Demo Scripts**
----------------------------------
-
-Under /  include JSON fixtures used by backend and tests:
-
-*   projects.json, ws\_project\_messages.json, crosschain\_messages\_lifecycle.json, deploy\_inspect\_\*.json, account\_info\_\*.json, ft\_actions\_omniYLD.json.
-    
-
-**Quick demo script** (Node) — run a simulated deposit → emit message → process envelope → simulated execution:
-
-node backend/scripts/simulate\_deposit\_and\_relay.js --project proj-001 --amount 0.1
-
-The script will:
-
-1.  Call api/cspr/deploy ( ) to create a deposit event.
-    
-2.  Backend picks up deposit event and emits CrossChainMessage with payload\_hash.
-    
-3.  Adapter signs envelope and simulates sending to Satellite; satellite replies with harvest\_report.
-    
-4.  Backend aggregates and writes harvest\_report back to UI via WebSocket.
-    
-
-**13\. Performance & Gas Considerations**
------------------------------------------
-
-*   **On-chain costs:** each deposit() and redeem() is a deploy and will incur gas (native CSPR).
-    
-*   **Event emission:** emitting events is cheap in gas but still consumes resources – keep event payloads small (emit payload\_hash, not full payload).
-    
-*   **Batching:** batch non-urgent cross-chain messages to reduce adapter relay costs.
-    
-*   **Off-chain aggregation:** heavy compute (rebalancing decision logic) should run off-chain.
-    
-
-**Example gas tuning (Odra Livenet)**Set env.set\_gas(600\_000\_000\_000u64) for heavy operations, 300\_000\_000\_000u64 for simple calls — tune according to results on testnet with actual deploys.
-
-**14\. Roadmap & Extensions**
------------------------------
-
-Short/mid term:
-
-*   Implement real integrations with LayerZero / CCIP (production adapters).
-    
-*   Add DAO & governance token layers to manage rebalancer parameters.
-    
-*   Add audit & formal verification steps for on-chain code.
-    
-*   Add insurance / slashing guard rails for relayer misbehavior.
-    
-
-Long term:
-
-*   Insure omniYLD TVL with third-party fund coverage.
-    
-*   Provide institutional vaults with risk profiles and KYC rails.
-    
-*   Implement composable yield derivatives (straddles, option wrappers).
-    
-
-**15\. Appendix: Useful Commands & File Layout**
-------------------------------------------------
-
-### **Build & test**
-
-\# build wasm
-
-cargo odra build --release
-
-\# run OdraVM tests
-
+```bash
 cargo odra test
+```
 
-\# deploy to livenet (requires .env)
+### Livenet integration tests
 
-ODRA\_CASPER\_LIVENET\_ENV=casper-test cargo run --bin omniyield\_livenet --features livenet
+* For integration with testnet (requires `.env` with key paths and node addresses):
 
-### **Backend**
+```bash
+ODRA_CASPER_LIVENET_ENV=casper-test cargo run --bin omniyield_livenet --features livenet
+```
 
+### Backend tests (Jest)
+
+* Unit tests for SSE parsing, envelope building, and adapter flows:
+
+```bash
 cd backend
+npm ci
+npm test
+```
 
-npm install
+### Frontend tests
 
-node src/sidecarListener.js
+* React component unit tests (Jest + React Testing Library) and E2E (Playwright in CI optional).
 
-node src/adapterSimulator.js
+### CI Overview (example)
 
-### **Frontend**
+* `ci/build-wasm` — cargo odra build → artifact wasm
+* `ci/test` — run `cargo odra test`, `npm test` (backend), `pnpm test` (frontend)
+* `ci/deploy` — NodeOps Autogen integration (optional) to auto-deploy to testnet when `main` branch updated and tests pass
 
-cd frontend
+---
 
-npm install
+## Security, error handling & audit notes
 
+### Error model (on-chain)
+
+* Typed error enum with deterministic codes (`OmniYieldError`) used consistently across contracts. Example namespaces:
+
+  * `0x0100` Vault errors (ZeroDeposit, InsufficientBalance)
+  * `0x0200` Token errors (MintFailed)
+  * `0x0300` Cross-chain errors (InvalidPayloadHash, RelayNotAuthorized)
+* Use Odra `ensure!` macros and return OdraError with codes.
+
+### Off-chain error handling
+
+* Error events `ErrorOccurred { code, message, context }` emitted to Sidecar SSE for transparency.
+* Backend maps on-chain error codes to human-friendly UI messages. Avoid leaking internal stack traces in UI.
+
+### Safety patterns
+
+* **Circuit breaker**: ability to pause adapter processing and block relays.
+* **Time-locks**: delay sensitive upgrades and large withdrawals.
+* **Multi-sig admin**: governance operations gated by multi-signature keys.
+* **Event auditing**: every cross-chain message has on-chain `payload_hash` that is verifiable.
+
+### Audit checklist
+
+* Verify `payload_hash` generation & canonical serialization
+* Confirm `used_nonces` and replay protection
+* Check mint/burn supply invariants
+* Validate role named keys and role_of read entrypoint correctness
+* Ensure Sidecar events map addresses properly (avoid false positives)
+
+---
+
+## Governance & role proofs (named keys)
+
+* Access control uses **named keys** and explicit mappings on chain (governors/operators).
+* On-chain entrypoint `role_of(address)` returns role code (0/1/2). Frontend calls this read method to **cryptographically verify** roles — no heuristics.
+* Governance flow:
+
+  * Create proposal (Governors)
+  * Vote (Governors / staked token holders in later phases)
+  * Execute (after timelock / voting thresholds)
+* Governance proposals are stored as on-chain records; metadata can be stored on IPFS and referenced by hash.
+
+---
+
+## API reference & OpenAPI fragment
+
+A minimal example for the backend's inspector API (Swagger/OpenAPI):
+
+```yaml
+openapi: 3.0.3
+info:
+  title: OmniYield Backend API
+  version: 0.1.0
+paths:
+  /api/projects:
+    get:
+      summary: List projects
+      responses:
+        '200':
+          description: OK
+  /api/activity:
+    get:
+      parameters:
+        - name: page
+          in: query
+          schema: { type: integer, default: 0 }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 10 }
+      responses:
+        '200':
+          description: Paginated events
+```
+
+You can use `swagger-jsdoc` to generate interactive docs from the codebase.
+
+---
+
+## Mock data & demo scripts
+
+* `/mock` — JSON fixtures used by backend & UI for offline demos:
+
+  * `projects.json`, `ws_project_messages.json`, `crosschain_messages.json`
+* Demo scripts:
+
+  * `backend/scripts/simulate_deposit_and_relay.js` — simulate a deposit and full message lifecycle for presentation
+  * `frontend/scripts/generate-demo-data.ts` — quickly seed UI with sample events
+
+**Quick demo command (local):**
+
+```bash
+# start indexer + adapter simulator (backend)
+cd backend
+npm ci
 npm run dev
 
-\# ensure VITE\_API\_BASE and VITE\_WS\_URL are correct
+# start front end (Next.js)
+cd frontend
+pnpm install
+pnpm dev
+```
 
-### **File layout (recap)**
+Open `http://localhost:3000` (or `http://localhost:3001` as configured).
 
-/omni-yield
+---
 
-  /src (odra/rust code)
+## Development: run locally (quick start)
 
-  / 
+1. **Prereqs:** Rust, `wasm32-unknown-unknown` target, Node.js v20+, pnpm/npm, Docker (optional).
+2. **Clone:**
 
-  /backend
+```bash
+git clone https://github.com/lucylow/casper-omniyield.git
+cd casper-omniyield
+```
 
-    src/
+3. **Build contracts:**
 
-    scripts/
+```bash
+cargo odra build --release
+# outputs wasm in target/wasm32-unknown-unknown/release/
+```
 
-    package.json
+4. **Start backend (SSE listener + adapter simulator):**
 
-  /frontend
+```bash
+cd backend
+cp .env.example .env
+npm ci
+npm run dev
+```
 
-    src/
+5. **Start frontend (Next.js):**
 
-    package.json
+```bash
+cd frontend
+pnpm install
+pnpm dev
+```
 
-  README.md
+6. **Run tests:**
 
-  Odra.toml
+```bash
+# Odra unit tests
+cargo odra test
 
-  Cargo.toml
+# Backend tests
+cd backend && npm test
 
+# Frontend tests (Jest)
+cd frontend && pnpm test
+```
+
+**.env.example sample**
+
+```bash
+# Casper node & sidecar
+CSPR_EVENTS_URL=https://node.testnet.cspr.cloud/events
+CSPR_NODE_RPC=https://node.testnet.cspr.cloud
+
+# Contract hashes (after deploy)
+OMNIYIELD_CONTRACT_HASH=hash-...
+
+# Adapter keys (for signing envelopes)
+ADAPTER_PRIVATE_KEY_PATH=./keys/adapter_key.pem
+
+# Backend
+WS_PORT=4050
+```
+
+---
+
+## Roadmap & next steps
+
+* **Bridge integrations:** LayerZero / Axelar / CCIP adapters (production).
+* **Security audits:** third-party audit (Halborn / Trail of Bits).
+* **Governance token / DAO:** omniYLD governance layer & treasury.
+* **Insurance & slashing:** protect against relay misbehaviour.
+* **Formal verification:** invariants & supply conservation proofs.
+* **Performance optimization:** batching, gas tuning, storage pruning.
+
+---
+
+## Contributing, licensing, contacts
+
+* **Contributing:** PRs welcome. See `CONTRIBUTING.md` for code standards, commit message style, and branch policy.
+* **Code of Conduct:** Please be respectful and follow the repo's code of conduct.
+* **License:** MIT (see `LICENSE`).
+* **Contact / Maintainers:** lucylow (GitHub) — use Issues for bug reports & feature requests.
+
+---
+
+## Appendix
+
+### Useful commands recap
+
+```bash
+# build wasm
+cargo odra build --release
+
+# odra tests
+cargo odra test
+
+# run backend locally
+cd backend
+npm ci
+npm run dev
+
+# run frontend
+cd frontend
+pnpm install
+pnpm dev
+```
+
+### Key files & directories
+
+```
+/src (Odra contracts)
+  vault.rs
+  strategy_manager.rs
+  token.rs
+  access_control.rs
+/backend
+  src/sidecarListener.ts
+  src/indexer.ts
+  src/adapterSimulator.ts
+  scripts/
+/frontend
+  app/ (Next.js App Router pages)
+  components/
+  providers/
+/mock
+/docs
+```
