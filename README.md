@@ -886,22 +886,3 @@ npm run dev
 
   Cargo.toml
 
-**FAQ / Quick Troubleshooting**
--------------------------------
-
-**Q: Sidecar SSE not emitting events?**A: Confirm Sidecar is running & events endpoint reachable. Check event\_stream\_buffer\_length in node config. Use curl -sN https://node.testnet.cspr.cloud/events to see raw SSE.
-
-**Q: My frontend doesn't see messages?**A: Confirm backend is broadcasting via WebSocket and client connected to correct WS\_URL. Inspect backend logs for parsed events.
-
-**Q: How do I compute payload\_hash in JS?**A: Use a blake2b library (e.g., blakejs):
-
-import { blake2b } from "blakejs";
-
-const payloadBytes = concat(amountBytes, userBytes, tsBytes, actionBytes);
-
-const hash = blake2b(payloadBytes, null, 32);
-
-const payloadHash = "0x" + Buffer.from(hash).toString("hex");
-
-**Q: Where to store adapter private key?**A: Use vaults/secrets manager or environment secrets (do not commit keys to repo).
-
