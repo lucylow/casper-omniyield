@@ -1,42 +1,67 @@
-import { Toaster } from "@/components/ui/sonner";
+import { Toaster } from "@/components/ui/toaster";
+import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import NotFound from "@/pages/NotFound";
-import { Route, Switch } from "wouter";
-import ErrorBoundary from "./components/ErrorBoundary";
-import { ThemeProvider } from "./contexts/ThemeContext";
-import Home from "./pages/Home";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { BrowserRouter, Routes, Route, useLocation } from "react-router-dom";
+import { WalletProvider } from "./contexts/WalletContext";
+import { VaultProvider } from "./contexts/VaultContext";
+import { Layout } from "./components/layout/Layout";
+import Index from "./pages/Index";
+import Dashboard from "./pages/Dashboard";
+import Deposit from "./pages/Deposit";
+import Strategies from "./pages/Strategies";
+import Activity from "./pages/Activity";
+import Governance from "./pages/Governance";
+import Settings from "./pages/Settings";
+import Demo from "./pages/Demo";
+import NotFound from "./pages/NotFound";
 
+const queryClient = new QueryClient();
 
-function Router() {
+// Wrapper component to conditionally apply layout
+function AppRoutes() {
+  const location = useLocation();
+  const isLandingPage = location.pathname === '/';
+
+  // Landing page doesn't use the sidebar layout
+  if (isLandingPage) {
+    return (
+      <Routes>
+        <Route path="/" element={<Index />} />
+      </Routes>
+    );
+  }
+
   return (
-    <Switch>
-      <Route path={"/"} component={Home} />
-      <Route path={"/404"} component={NotFound} />
-      {/* Final fallback route */}
-      <Route component={NotFound} />
-    </Switch>
+    <Layout>
+      <Routes>
+        <Route path="/dashboard" element={<Dashboard />} />
+        <Route path="/deposit" element={<Deposit />} />
+        <Route path="/strategies" element={<Strategies />} />
+        <Route path="/activity" element={<Activity />} />
+        <Route path="/governance" element={<Governance />} />
+        <Route path="/settings" element={<Settings />} />
+        <Route path="/demo" element={<Demo />} />
+        <Route path="*" element={<NotFound />} />
+      </Routes>
+    </Layout>
   );
 }
 
-// NOTE: About Theme
-// - First choose a default theme according to your design style (dark or light bg), than change color palette in index.css
-//   to keep consistent foreground/background color across components
-// - If you want to make theme switchable, pass `switchable` ThemeProvider and use `useTheme` hook
-
-function App() {
-  return (
-    <ErrorBoundary>
-      <ThemeProvider
-        defaultTheme="light"
-        // switchable
-      >
-        <TooltipProvider>
+const App = () => (
+  <QueryClientProvider client={queryClient}>
+    <TooltipProvider>
+      <WalletProvider>
+        <VaultProvider>
           <Toaster />
-          <Router />
-        </TooltipProvider>
-      </ThemeProvider>
-    </ErrorBoundary>
-  );
-}
+          <Sonner />
+          <BrowserRouter>
+            <AppRoutes />
+          </BrowserRouter>
+        </VaultProvider>
+      </WalletProvider>
+    </TooltipProvider>
+  </QueryClientProvider>
+);
 
 export default App;
