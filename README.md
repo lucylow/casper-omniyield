@@ -53,7 +53,7 @@ OmniYield Nexus separates responsibilities across on-chain and off-chain compone
 
 ---
 
-## ✅ FIXED: System Overview (GitHub-Compatible Mermaid)
+## System Overview (GitHub-Compatible Mermaid)
 
 ```mermaid
 flowchart LR
@@ -94,7 +94,7 @@ flowchart LR
 
 ---
 
-## ✅ FIXED: Cross-Chain Message Lifecycle (Sequence Diagram)
+##  Cross-Chain Message Lifecycle (Sequence Diagram)
 
 Sequence diagrams are usually safer, but here is a **fully GitHub-safe version**:
 
