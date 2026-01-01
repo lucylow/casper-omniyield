@@ -11,27 +11,8 @@
 
 ---
 
-## Table of contents
 
-1. [Architecture (high level)](#architecture-high-level)
-2. [Diagrams (Mermaid)](#diagrams-mermaid)
-3. [Contracts (Odra) — design & API](#contracts-odra--design--api)
-4. [Cross-chain messaging model & envelope spec](#cross-chain-messaging-model--envelope-spec)
-5. [Backend — Sidecar SSE consumer & adapter simulator](#backend--sidecar-sse-consumer--adapter-simulator)
-6. [Frontend — Next.js dApp (App Router) & pages](#frontend--nextjs-dapp-app-router--pages)
-7. [Transaction lifecycle, SSE → Activity page, Fork mode](#transaction-lifecycle-sse--activity-page-fork-mode)
-8. [Testing & CI](#testing--ci)
-9. [Security, error handling & audit notes](#security-error-handling--audit-notes)
-10. [Governance & role proofs (named keys)](#governance--role-proofs-named-keys)
-11. [API reference & OpenAPI fragment](#api-reference--openapi-fragment)
-12. [Mock data & demo scripts](#mock-data--demo-scripts)
-13. [Development: run locally (quick start)](#development-run-locally-quick-start)
-14. [Roadmap & next steps](#roadmap--next-steps)
-15. [Contributing, licensing, contacts](#contributing-licensing-contacts)
-
----
-
-## Architecture (high level)
+## Architecture
 
 OmniYield Nexus separates responsibilities across on-chain and off-chain components to retain minimal trust in contracts and maximize extensibility.
 
@@ -139,49 +120,6 @@ flowchart LR
 ```
 
 ---
-
-
-
-
-
-
-
-### System overview
-
-flowchart LR
-  subgraph USER
-    U["Wallet<br/>CSPR click"]
-  end
-
-  subgraph CASPER
-    Vault["OmniYield Vault<br/>Odra Contract"]
-    Token["omniYLD Token<br/>CEP-18"]
-    Strategy["Strategy Manager"]
-    Sidecar["Sidecar SSE"]
-  end
-
-  subgraph BACKEND
-    Indexer["Event Indexer"]
-    Adapter["Adapter / Simulator"]
-    WS["WebSocket Bridge"]
-  end
-
-  subgraph SATELLITE
-    S1["Satellite Vault<br/>Chain A"]
-    S2["Satellite Vault<br/>Chain B"]
-  end
-
-  U -->|deposit| Vault
-  Vault -->|mint| Token
-  Strategy -->|emit payload_hash| Sidecar
-  Sidecar --> Indexer
-  Indexer --> Adapter
-  Adapter --> S1
-  Adapter --> S2
-  S1 -->|harvest report| Indexer
-  Indexer -->|aggregate| Vault
-  Indexer --> WS
-  WS --> U
 
 
 ### Message lifecycle (sequence)
