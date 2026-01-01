@@ -1,7 +1,9 @@
 # Casper OmniYield — OmniYield Nexus (Casper Cross-Chain Yield Optimizer)
 
 **Repository:** `https://github.com/lucylow/casper-omniyield/tree/main`
+
 **Status:** Hackathon MVP → Testnet Prototype (Casper Testnet)
+
 **Stack:** Odra (Rust WASM contracts), Casper (Sidecar SSE), CSPR.click wallet, casper-js-sdk, Node.js backend (Sidecar consumer + adapter simulator), Next.js App Router frontend (React + TypeScript), Docker, Jest, Cargo Odra tests.
 
  OmniYield Nexus is a Casper-native coordination hub for cross-chain yield optimization. Users deposit CSPR into a Casper vault and receive a synthetic CEP-18 token `omniYLD`. The protocol emits deterministic `payload_hash` events that off-chain adapters/relayers can consume and forward to satellite vaults on other chains (MVP uses simulated satellite execution). On-chain accounting and event streams are anchored on Casper (Sidecar SSE) so the ecosystem has an auditable source of truth.
