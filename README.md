@@ -55,33 +55,32 @@ Paste these into a Markdown viewer that supports Mermaid (GitHub renders Mermaid
 
 ### System overview
 
-```mermaid
 flowchart LR
   subgraph USER
-    U[Wallet (CSPR.click)]
+    U["Wallet<br/>CSPR click"]
   end
 
   subgraph CASPER
-    Vault[OmniYield Vault (Odra)]
-    Token[omniYLD (CEP-18)]
-    Strategy[StrategyManager (Odra)]
-    Sidecar[Sidecar SSE]
+    Vault["OmniYield Vault<br/>Odra Contract"]
+    Token["omniYLD Token<br/>CEP-18"]
+    Strategy["Strategy Manager"]
+    Sidecar["Sidecar SSE"]
   end
 
   subgraph BACKEND
-    Indexer[Event Indexer & Bridge]
-    Adapter[Adapter / Simulator]
-    WS[WebSocket -> UI]
+    Indexer["Event Indexer"]
+    Adapter["Adapter / Simulator"]
+    WS["WebSocket Bridge"]
   end
 
   subgraph SATELLITE
-    S1[Satellite Vault (simulated L1)]
-    S2[Satellite Vault (simulated L2)]
+    S1["Satellite Vault<br/>Chain A"]
+    S2["Satellite Vault<br/>Chain B"]
   end
 
   U -->|deposit| Vault
   Vault -->|mint| Token
-  Strategy -->|emit CrossChainMessage(payload_hash)| Sidecar
+  Strategy -->|emit payload_hash| Sidecar
   Sidecar --> Indexer
   Indexer --> Adapter
   Adapter --> S1
@@ -90,7 +89,7 @@ flowchart LR
   Indexer -->|aggregate| Vault
   Indexer --> WS
   WS --> U
-```
+
 
 ### Message lifecycle (sequence)
 
