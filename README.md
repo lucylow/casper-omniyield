@@ -119,38 +119,10 @@ sequenceDiagram
   Vault-->>User: balance updated
 ```
 
----
 
-## 🔧 RULES TO AVOID MERMAID PARSE ERRORS ON GITHUB
 
-Use these rules everywhere in your README:
+## ✅ Architecture Diagram 
 
-### ❌ Avoid
-
-* Parentheses `( )`
-* Periods inside labels (`CSPR.click`)
-* Colons `:` inside node text
-* Slashes `/` unless escaped
-* Quotes inside quotes
-
-### ✅ Use Instead
-
-* `<br/>` for line breaks
-* Plain words
-* Short labels
-* Aliases via `as`
-
-Example:
-
-```mermaid
-A["Wallet<br/>CSPR click"]
-```
-
----
-
-## ✅ OPTIONAL: Minimal Architecture Diagram (Ultra-Safe)
-
-If judges view on GitHub mobile or restricted renderers, this version **never fails**:
 
 ```mermaid
 flowchart LR
