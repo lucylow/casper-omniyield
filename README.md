@@ -441,9 +441,9 @@ You can use `swagger-jsdoc` to generate interactive docs from the codebase.
 
 ---
 
-## Mock data & demo scripts
+##  data & demo scripts
 
-* `/mock` — JSON fixtures used by backend & UI for offline demos:
+* `/` — JSON fixtures used by backend & UI for offline demos:
 
   * `projects.json`, `ws_project_messages.json`, `crosschain_messages.json`
 * Demo scripts:
@@ -594,6 +594,6 @@ pnpm dev
   app/ (Next.js App Router pages)
   components/
   providers/
-/mock
+/
 /docs
 ```
