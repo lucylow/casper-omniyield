@@ -1,6 +1,8 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { toast } from 'sonner';
 import { useWallet } from './WalletContext';
+import { addTransaction, getTransactions } from '@/services/transactionService';
+import { getYieldData, getVaultStats as fetchVaultStats } from '@/services/yieldService';
 
 interface VaultStats {
   totalAssets: string;
@@ -211,6 +213,10 @@ export const VaultProvider = ({ children }: { children: ReactNode }) => {
       await new Promise(resolve => setTimeout(resolve, 2000));
       
       const shares = parseFloat(amount);
+      const deployHash = `0x${Date.now().toString(16)}${'0'.repeat(50)}`;
+      
+      // Add transaction with real tracking
+      const tx = await addTransaction('deposit', amount, deployHash, wallet?.isReal ?? false);
       
       toast.success(`Successfully deposited ${formatCSPR(amount)} CSPR!`);
       
@@ -221,16 +227,17 @@ export const VaultProvider = ({ children }: { children: ReactNode }) => {
         type: 'deposit',
         amount: parseFloat(amount),
         shares: shares,
-        hash: `0x${Date.now().toString(16)}${'0'.repeat(50)}`,
+        hash: deployHash,
         timestamp: Date.now(),
-        status: 'confirmed',
+        status: tx.status,
       };
       
       setTransactions(prev => [newTx, ...prev.slice(0, 49)]);
       
-      return { success: true, shares, deployHash: newTx.hash };
+      return { success: true, shares, deployHash };
     } catch (error: any) {
-      toast.error(`Deposit failed: ${error.message}`);
+      const errorMsg = error.message || 'Unknown error';
+      toast.error(`Deposit failed: ${errorMsg}`);
       throw error;
     } finally {
       setLoading(prev => ({ ...prev, deposit: false }));
@@ -249,6 +256,10 @@ export const VaultProvider = ({ children }: { children: ReactNode }) => {
       await new Promise(resolve => setTimeout(resolve, 2000));
       
       const cspr = parseFloat(shares) * 1.05; // Simulated share price appreciation
+      const deployHash = `0x${Date.now().toString(16)}${'0'.repeat(50)}`;
+      
+      // Add transaction with real tracking
+      const tx = await addTransaction('withdraw', cspr.toString(), deployHash, wallet?.isReal ?? false);
       
       toast.success(`Successfully withdrew ${formatCSPR(cspr.toString())} CSPR!`);
       
@@ -259,16 +270,17 @@ export const VaultProvider = ({ children }: { children: ReactNode }) => {
         type: 'withdraw',
         amount: cspr,
         shares: parseFloat(shares),
-        hash: `0x${Date.now().toString(16)}${'0'.repeat(50)}`,
+        hash: deployHash,
         timestamp: Date.now(),
-        status: 'confirmed',
+        status: tx.status,
       };
       
       setTransactions(prev => [newTx, ...prev.slice(0, 49)]);
       
-      return { success: true, cspr, deployHash: newTx.hash };
+      return { success: true, cspr, deployHash };
     } catch (error: any) {
-      toast.error(`Withdrawal failed: ${error.message}`);
+      const errorMsg = error.message || 'Unknown error';
+      toast.error(`Withdrawal failed: ${errorMsg}`);
       throw error;
     } finally {
       setLoading(prev => ({ ...prev, withdraw: false }));
