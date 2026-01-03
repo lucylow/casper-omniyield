@@ -1,17 +1,34 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useWallet } from '../contexts/WalletContext';
-import { Wallet, ChevronDown, ExternalLink, Copy, Check, RefreshCw } from 'lucide-react';
+import { Wallet, ChevronDown, ExternalLink, Copy, Check, RefreshCw, AlertCircle, CheckCircle2, Zap } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 
 const ConnectWallet = () => {
-  const { wallet, balance, network, connectWallet, disconnectWallet, updateBalance, switchNetwork, loading } = useWallet();
+  const { wallet, balance, network, connectWallet, disconnectWallet, updateBalance, switchNetwork, loading, isRealWallet } = useWallet();
   const [showDropdown, setShowDropdown] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [walletDetected, setWalletDetected] = useState(false);
+  const [showWalletGuide, setShowWalletGuide] = useState(false);
+
+  // Detect available wallets on mount
+  useEffect(() => {
+    const checkWalletAvailability = () => {
+      const hasCasperWallet = (window as any).casperWalletProvider !== undefined;
+      const hasCsprClick = (window as any).CasperWalletProvider !== undefined;
+      setWalletDetected(hasCasperWallet || hasCsprClick);
+    };
+
+    checkWalletAvailability();
+    window.addEventListener('load', checkWalletAvailability);
+    return () => window.removeEventListener('load', checkWalletAvailability);
+  }, []);
 
   const handleConnect = async () => {
     try {
       await connectWallet();
+      setShowDropdown(false);
     } catch (error) {
       console.error('Connection error:', error);
     }
@@ -20,6 +37,18 @@ const ConnectWallet = () => {
   const handleDisconnect = async () => {
     await disconnectWallet();
     setShowDropdown(false);
+  };
+
+  const handleRefreshBalance = async () => {
+    setIsRefreshing(true);
+    try {
+      await updateBalance();
+      toast.success('Balance updated!');
+    } catch (error) {
+      toast.error('Failed to refresh balance');
+    } finally {
+      setIsRefreshing(false);
+    }
   };
 
   const copyAddress = async () => {
@@ -50,22 +79,58 @@ const ConnectWallet = () => {
     }
   };
 
+  const installWallet = () => {
+    window.open('https://chrome.google.com/webstore/detail/casper-wallet/abkahkcbhngaebpchnke02e1b3d51b3d', '_blank');
+  };
+
+  // Not connected state
   if (!wallet) {
     return (
-      <button
-        onClick={handleConnect}
-        disabled={loading}
-        className="wallet-connect-btn flex items-center gap-2 bg-gradient-to-r from-primary to-accent text-primary-foreground px-6 py-3 rounded-xl font-semibold text-sm transition-all hover:scale-105 hover:shadow-lg hover:shadow-primary/30 disabled:opacity-70 disabled:cursor-not-allowed disabled:transform-none"
-      >
-        {loading ? (
-          <div className="w-5 h-5 border-2 border-primary-foreground/30 border-t-primary-foreground rounded-full animate-spin" />
-        ) : (
-          <>
-            <Wallet className="w-5 h-5" />
-            Connect Wallet
-          </>
+      <div className="flex flex-col gap-3">
+        <button
+          onClick={handleConnect}
+          disabled={loading}
+          className="wallet-connect-btn flex items-center justify-center gap-2 bg-gradient-to-r from-primary to-secondary text-primary-foreground px-6 py-3 rounded-xl font-semibold text-sm transition-all hover:scale-105 hover:shadow-lg hover:shadow-primary/30 disabled:opacity-70 disabled:cursor-not-allowed disabled:transform-none"
+        >
+          {loading ? (
+            <>
+              <div className="w-5 h-5 border-2 border-primary-foreground/30 border-t-primary-foreground rounded-full animate-spin" />
+              <span>Connecting...</span>
+            </>
+          ) : (
+            <>
+              <Wallet className="w-5 h-5" />
+              <span>Connect Wallet</span>
+            </>
+          )}
+        </button>
+
+        {/* Wallet detection info */}
+        {!walletDetected && (
+          <div className="bg-accent/10 border border-accent/30 rounded-lg p-3 flex items-start gap-3">
+            <AlertCircle className="w-5 h-5 text-accent flex-shrink-0 mt-0.5" />
+            <div className="flex-1 text-sm">
+              <p className="text-foreground font-medium mb-2">Casper Wallet not detected</p>
+              <button
+                onClick={installWallet}
+                className="text-accent hover:underline font-semibold"
+              >
+                Install Casper Wallet Extension →
+              </button>
+            </div>
+          </div>
         )}
-      </button>
+
+        {/* Demo mode info */}
+        {walletDetected && (
+          <div className="bg-primary/10 border border-primary/30 rounded-lg p-3 flex items-start gap-3">
+            <CheckCircle2 className="w-5 h-5 text-primary flex-shrink-0 mt-0.5" />
+            <p className="text-sm text-muted-foreground">
+              Casper Wallet detected. Click connect to authenticate.
+            </p>
+          </div>
+        )}
+      </div>
     );
   }
 
@@ -75,11 +140,24 @@ const ConnectWallet = () => {
         onClick={() => setShowDropdown(!showDropdown)}
         className="flex items-center gap-3 bg-card border border-[hsl(var(--border))] px-3 py-2 rounded-xl transition-all hover:border-primary hover:bg-primary/10 min-w-[200px]"
       >
-        <div className="w-9 h-9 rounded-lg bg-gradient-to-r from-primary to-accent flex items-center justify-center text-primary-foreground">
+        <div className={cn(
+          "w-9 h-9 rounded-lg flex items-center justify-center text-primary-foreground",
+          isRealWallet 
+            ? "bg-gradient-to-r from-primary to-secondary" 
+            : "bg-gradient-to-r from-muted to-muted-foreground"
+        )}>
           <Wallet className="w-5 h-5" />
         </div>
         <div className="flex flex-col items-start flex-1">
-          <span className="font-semibold text-sm text-foreground">{formatBalance(balance)} CSPR</span>
+          <div className="flex items-center gap-2">
+            <span className="font-semibold text-sm text-foreground">{formatBalance(balance)} CSPR</span>
+            {isRealWallet && (
+              <span className="text-xs bg-primary/20 text-primary px-2 py-0.5 rounded-full flex items-center gap-1">
+                <Zap className="w-3 h-3" />
+                Real
+              </span>
+            )}
+          </div>
           <span className="text-xs text-muted-foreground">{formatAddress(wallet.publicKey)}</span>
         </div>
         <ChevronDown className={cn("w-4 h-4 text-muted-foreground transition-transform", showDropdown && "rotate-180")} />
@@ -89,22 +167,37 @@ const ConnectWallet = () => {
         <>
           <div className="fixed inset-0 z-40" onClick={() => setShowDropdown(false)} />
           <div className="absolute top-full mt-2 right-0 w-80 bg-card border border-[hsl(var(--border))] rounded-2xl p-5 z-50 shadow-xl animate-in fade-in slide-in-from-top-2">
+            {/* Wallet Status */}
             <div className="flex items-center gap-3 pb-5 border-b border-[hsl(var(--border))] mb-5">
-              <div className="w-12 h-12 rounded-xl bg-gradient-to-r from-primary to-accent flex items-center justify-center text-primary-foreground flex-shrink-0">
+              <div className={cn(
+                "w-12 h-12 rounded-xl flex items-center justify-center text-primary-foreground flex-shrink-0",
+                isRealWallet 
+                  ? "bg-gradient-to-r from-primary to-secondary" 
+                  : "bg-gradient-to-r from-muted to-muted-foreground"
+              )}>
                 <Wallet className="w-6 h-6" />
               </div>
               <div className="flex-1 min-w-0">
-                <p className="font-semibold text-lg text-foreground">{formatBalance(balance)} CSPR</p>
+                <div className="flex items-center gap-2 mb-1">
+                  <p className="font-semibold text-lg text-foreground">{formatBalance(balance)} CSPR</p>
+                  {isRealWallet && (
+                    <span className="text-xs bg-primary/20 text-primary px-2 py-0.5 rounded-full flex items-center gap-1">
+                      <CheckCircle2 className="w-3 h-3" />
+                      Connected
+                    </span>
+                  )}
+                </div>
                 <p className="text-xs text-muted-foreground break-all">{wallet.publicKey}</p>
               </div>
             </div>
 
+            {/* Action Buttons */}
             <div className="flex flex-col gap-2 mb-5">
               <button
                 onClick={copyAddress}
                 className="flex items-center gap-3 p-3 bg-muted/50 border border-[hsl(var(--border))] rounded-lg text-muted-foreground text-sm transition-all hover:bg-primary/10 hover:border-primary hover:text-foreground"
               >
-                {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                {copied ? <Check className="w-4 h-4 text-green-400" /> : <Copy className="w-4 h-4" />}
                 {copied ? 'Copied!' : 'Copy Address'}
               </button>
               <button
@@ -115,21 +208,23 @@ const ConnectWallet = () => {
                 View on Explorer
               </button>
               <button
-                onClick={updateBalance}
-                className="flex items-center gap-3 p-3 bg-muted/50 border border-[hsl(var(--border))] rounded-lg text-muted-foreground text-sm transition-all hover:bg-primary/10 hover:border-primary hover:text-foreground"
+                onClick={handleRefreshBalance}
+                disabled={isRefreshing}
+                className="flex items-center gap-3 p-3 bg-muted/50 border border-[hsl(var(--border))] rounded-lg text-muted-foreground text-sm transition-all hover:bg-primary/10 hover:border-primary hover:text-foreground disabled:opacity-50"
               >
-                <RefreshCw className="w-4 h-4" />
-                Refresh Balance
+                <RefreshCw className={cn("w-4 h-4", isRefreshing && "animate-spin")} />
+                {isRefreshing ? 'Refreshing...' : 'Refresh Balance'}
               </button>
             </div>
 
+            {/* Network Selector */}
             <div className="mb-5">
               <span className="block text-xs text-muted-foreground uppercase tracking-wider mb-2">Network</span>
               <div className="flex gap-2">
                 <button
                   onClick={() => switchNetwork('testnet')}
                   className={cn(
-                    "flex-1 py-2.5 rounded-lg text-sm transition-all",
+                    "flex-1 py-2.5 rounded-lg text-sm transition-all font-medium",
                     network === 'testnet'
                       ? "bg-primary/20 border border-primary text-primary"
                       : "bg-muted/50 border border-[hsl(var(--border))] text-muted-foreground hover:bg-muted"
@@ -140,7 +235,7 @@ const ConnectWallet = () => {
                 <button
                   onClick={() => switchNetwork('mainnet')}
                   className={cn(
-                    "flex-1 py-2.5 rounded-lg text-sm transition-all",
+                    "flex-1 py-2.5 rounded-lg text-sm transition-all font-medium",
                     network === 'mainnet'
                       ? "bg-primary/20 border border-primary text-primary"
                       : "bg-muted/50 border border-[hsl(var(--border))] text-muted-foreground hover:bg-muted"
@@ -151,6 +246,25 @@ const ConnectWallet = () => {
               </div>
             </div>
 
+            {/* Wallet Type Info */}
+            <div className="mb-5 p-3 bg-muted/30 rounded-lg border border-[hsl(var(--border))]">
+              <p className="text-xs text-muted-foreground mb-1">Wallet Type</p>
+              <p className="text-sm font-semibold text-foreground flex items-center gap-2">
+                {isRealWallet ? (
+                  <>
+                    <CheckCircle2 className="w-4 h-4 text-green-400" />
+                    Real Casper Wallet
+                  </>
+                ) : (
+                  <>
+                    <AlertCircle className="w-4 h-4 text-accent" />
+                    Demo Wallet (Mock)
+                  </>
+                )}
+              </p>
+            </div>
+
+            {/* Disconnect Button */}
             <div className="border-t border-[hsl(var(--border))] pt-5">
               <button
                 onClick={handleDisconnect}
