@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, useLocation } from "react-router-dom";
 import { WalletProvider } from "./contexts/WalletContext";
 import { VaultProvider } from "./contexts/VaultContext";
+import { CsprCloudProvider } from "./contexts/CsprCloudContext";
 import { Layout } from "./components/layout/Layout";
 import Index from "./pages/Index";
 import Dashboard from "./pages/Dashboard";
@@ -53,11 +54,13 @@ const App = () => (
     <TooltipProvider>
       <WalletProvider>
         <VaultProvider>
-          <Toaster />
-          <Sonner />
-          <BrowserRouter>
-            <AppRoutes />
-          </BrowserRouter>
+          <CsprCloudProvider>
+            <Toaster />
+            <Sonner />
+            <BrowserRouter>
+              <AppRoutes />
+            </BrowserRouter>
+          </CsprCloudProvider>
         </VaultProvider>
       </WalletProvider>
     </TooltipProvider>
