@@ -1,0 +1,40 @@
+
+[package]
+name = "omniyield-vault"
+version = "0.1.0"
+authors = ["Your Name <you@example.com>"]
+edition = "2021"
+description = "OmniYield Vault contract - Casper smart contract (WASM)"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/your/repo"
+homepage = "https://github.com/your/repo"
+documentation = "https://github.com/your/repo"
+
+[lib]
+name = "omniyield_vault"
+crate-type = ["cdylib"]
+
+[package.metadata]
+
+[dependencies]
+casper-contract = "1.1.0"
+casper-types = "1.1.0"
+casper-derive = "1.1.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_bytes = "0.11"
+uint = "0.8"
+alloc = { version = "0.0.0", optional = true }
+
+[dev-dependencies]
+casper-contract-test = { version = "0.1", optional = true }
+
+[features]
+default = []
+testing = ["casper-contract-test"]
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+
